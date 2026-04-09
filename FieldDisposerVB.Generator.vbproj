@@ -1,0 +1,47 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <RootNamespace>FieldDisposerVB.Generator</RootNamespace>
+    <TargetFramework>netstandard2.0</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+    <NoWarn>$(NoWarn);NU5128</NoWarn>
+
+    <!-- NuGet Package Info -->
+    <PackageId>FieldDisposerVB.Generator</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Pac-Dessert1436</Authors>
+    <Company></Company>
+    <Description>A VB.NET source generator that automatically generates field disposal methods.</Description>
+    <PackageTags>VB.NET;SourceGenerator;Field;Dispose;CodeGenerator;Analyzer</PackageTags>
+    <RepositoryUrl>https://github.com/Pac-Dessert1436/FieldDisposerVB.Generator</RepositoryUrl>
+    <PackageProjectUrl>https://github.com/Pac-Dessert1436/FieldDisposerVB.Generator</PackageProjectUrl>
+    <PackageLicenseExpression>BSD-3-Clause</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+
+    <!-- Source Generator Required Settings -->
+    <IncludeBuildOutput>false</IncludeBuildOutput>
+    <IsRoslynComponent>true</IsRoslynComponent>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.CodeAnalysis.VisualBasic" Version="4.8.0"
+      PrivateAssets="all" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Analyzers" Version="3.3.4"
+      PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="README.md" Pack="true" PackagePath="" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="$(OutputPath)\$(AssemblyName).dll"
+      Pack="true"
+      PackagePath="analyzers/dotnet/vb"
+      Visible="false" />
+  </ItemGroup>
+</Project>
