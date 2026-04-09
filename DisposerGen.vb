@@ -260,9 +260,9 @@ End Class"
             code.AppendLine()
         End If
 
-        ' Partial method for unmanaged resources
+        ' Partial method for unmanaged resources (will be implemented, not overridden)
         code.AppendLine("    ''' <summary>")
-        code.AppendLine("    ''' Override this partial method to dispose of unmanaged resources, such as")
+        code.AppendLine("    ''' Implement this partial method to dispose of unmanaged resources, such as")
         code.AppendLine("    ''' setting large fields to Nothing.")
         code.AppendLine("    ''' </summary>")
         code.AppendLine("    Partial Private Sub DisposeUnmanagedResources()")

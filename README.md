@@ -1,12 +1,18 @@
 # FieldDisposerVB.Generator
 
-A VB.NET source generator that automatically generates field disposal methods for classes that implement `IDisposable`. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
+A VB.NET source generator that automatically generates field disposal methods for classes that implement IDisposable. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
 
-## Notes of Usage
+> **Notes of Usage:**
+>
+> If a class/structure contains at least one field marked with `<DisposeField>`, do NOT implement the `IDisposable` interface manually. The source generator will automatically implement this interface and handle the disposal of marked fields.
+>
+> However, when it is a **module** that contains at least one field marked with `<DisposeField>`, you **must manually call** the `DisposeModuleFields()` method to dispose all the fields marked with this attribute.
 
-If a class/structure contains at least one field marked with `<DisposeField>`, do NOT implement the `IDisposable` interface manually. The source generator will automatically implement this interface and handle the disposal of marked fields.
+## Version 1.0.1 Update
 
-However, when it is a **module** that contains at least one field marked with `<DisposeField>`, you **must manually call** the `DisposeModuleFields()` method to dispose all the fields marked with this attribute.
+This release fixes a minor documentation typo in the generated code comments. In version 1.0.0, the XML documentation **incorrectly** stated "Override this partial method" when referring to the `DisposeUnmanagedResources()` partial method. This has been corrected to **"Implement this partial method"** to accurately reflect that partial methods are implemented, not overridden.
+
+> **Important:** The functionality of the package **remains identical** to the previous version (1.0.0). Only the generated XML documentation comment has been corrected for accuracy and professionalism in this version (1.0.1).
 
 ## Requirements
 
@@ -118,7 +124,7 @@ Partial Public Class FileManager
     End Sub
 
     ''' <summary>
-    ''' Override this partial method to dispose of unmanaged resources, such as
+    ''' Implement this partial method to dispose of unmanaged resources, such as
     ''' setting large fields to Nothing.
     ''' </summary>
     Partial Private Sub DisposeUnmanagedResources()
@@ -191,7 +197,7 @@ Partial Public Module ResourceManager
     End Sub
 
     ''' <summary>
-    ''' Override this partial method to dispose of unmanaged resources, such as
+    ''' Implement this partial method to dispose of unmanaged resources, such as
     ''' setting large fields to Nothing.
     ''' </summary>
     Private Sub DisposeUnmanagedResources()
