@@ -2,11 +2,27 @@
 
 A VB.NET source generator that automatically generates field disposal methods for classes that implement IDisposable. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
 
+Support for `Structure` with fields marked with `<DisposeField>` is broken through 1.0.0 and 1.0.1. *__To utilize the `<DisposeField>` attribute in VB.NET structures, please use version 1.0.2 or later.__*
+
 > **Notes of Usage:**
 >
 > If a class/structure contains at least one field marked with `<DisposeField>`, do NOT implement the `IDisposable` interface manually. The source generator will automatically implement this interface and handle the disposal of marked fields.
 >
 > However, when it is a **module** that contains at least one field marked with `<DisposeField>`, you **must manually call** the `DisposeModuleFields()` method to dispose all the fields marked with this attribute.
+
+## Version 1.0.2 Update
+
+This release introduces significant improvements to field disposal handling and type accessibility:
+
+### New Features
+- **Smart Nullability Handling**: The generator now intelligently determines if fields are nullable and generates appropriate disposal code:
+  - For nullable fields: Uses safe `?.` operator (`field?.Dispose()`)
+  - For non-nullable fields: Will be disposed directly (`field.Dispose()`)
+- **Access Modifier Support**: Generated partial types now correctly match the original type's access modifier (Public, Private, Friend, Protected Friend, etc.)
+- **Enhanced Type Analysis**: Improved detection of field nullability and type accessibility
+
+### Known Limitations
+- **Nested Classes/Structures**: The source generator currently does not support nested classes or structures with fields marked with `<DisposeField>` attribute in them. Only top-level types are processed.
 
 ## Version 1.0.1 Update
 

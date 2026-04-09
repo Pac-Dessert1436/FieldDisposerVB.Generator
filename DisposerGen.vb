@@ -18,12 +18,14 @@ Public NotInheritable Class DisposerGen
         Public Property TypeName As String
         Public Property TypeConstruct As TypeConstruct
         Public Property Fields As List(Of FieldInfo)
+        Public Property AccessModifier As String
     End Class
 
     Private Class FieldInfo
         Public Property FieldName As String
         Public Property FieldType As String
         Public Property IsDisposable As Boolean
+        Public Property IsNullable As Boolean
     End Class
 
     Public Sub Initialize(context As IGIC) Implements IIncrementalGenerator.Initialize
@@ -111,6 +113,7 @@ End Class"
                 .ContainingNamespace = containingNamespace,
                 .TypeName = typeBlock.BlockStatement.Identifier.ValueText,
                 .TypeConstruct = GetTypeConstruct(typeBlock),
+                .AccessModifier = GetAccessModifier(typeSymbol),
                 .Fields = New List(Of FieldInfo)()
             }
 
@@ -144,15 +147,19 @@ End Class"
 
                     ' Check if the field type implements IDisposable
                     Dim isDisposable = False
+                    Dim isNullable = False
                     If hasDisposeFieldAttribute AndAlso fieldSymbol IsNot Nothing Then
                         isDisposable = ImplementsIDisposable(fieldSymbol.Type)
+                        ' Check if the field is nullable
+                        isNullable = IsFieldNullable(fieldSymbol)
                     End If
 
                     If hasDisposeFieldAttribute Then
                         typeInfo.Fields.Add(New FieldInfo With {
                             .FieldName = fieldName,
                             .FieldType = If(fieldSymbol?.Type?.ToDisplayString(), "Object"),
-                            .IsDisposable = isDisposable
+                            .IsDisposable = isDisposable,
+                            .IsNullable = isNullable
                         })
                     End If
                 Next
@@ -181,6 +188,23 @@ End Class"
         Return False
     End Function
 
+    Private Function IsFieldNullable(fieldSymbol As IFieldSymbol) As Boolean
+        If fieldSymbol Is Nothing Then Return False
+
+        ' Check whether the field:
+        ' - belongs to a nullable value type (Nullable(Of T))
+        ' - has a type name contains "?" (VB.NET nullable syntax)
+        ' - belongs to a reference type in itself (nullable by default in VB.NET)
+        With fieldSymbol.Type
+            If .OriginalDefinition.SpecialType = SpecialType.System_Nullable_T OrElse
+                .ToDisplayString().Contains("?") OrElse .IsReferenceType Then
+                Return True
+            End If
+        End With
+
+        Return False
+    End Function
+
     Private Function GetTypeConstruct(typeBlock As Syntax.TypeBlockSyntax) As TypeConstruct
         Select Case typeBlock.BlockStatement.Kind()
             Case SyntaxKind.ClassStatement
@@ -191,6 +215,29 @@ End Class"
                 Return TypeConstruct.Module
             Case Else
                 Return TypeConstruct.Class
+        End Select
+    End Function
+
+    Private Function GetAccessModifier(typeSymbol As INamedTypeSymbol) As String
+        Const DEFAULT_MODIFIER = "Friend"
+        If typeSymbol Is Nothing Then Return DEFAULT_MODIFIER
+
+        ' Check the declared accessibility
+        Select Case typeSymbol.DeclaredAccessibility
+            Case Accessibility.Private
+                Return "Private"
+            Case Accessibility.Protected
+                Return "Protected"
+            Case Accessibility.Internal
+                Return "Friend"
+            Case Accessibility.ProtectedOrInternal
+                Return "Protected Friend"
+            Case Accessibility.ProtectedAndInternal
+                Return "Private Protected"
+            Case Accessibility.Public
+                Return "Public"
+            Case Else
+                Return DEFAULT_MODIFIER
         End Select
     End Function
 
@@ -216,13 +263,14 @@ End Class"
                 typeKeyword = "Class"
         End Select
 
-        code.AppendLine($"Partial Public {typeKeyword} {typeInfo.TypeName}")
-        If typeInfo.TypeConstruct <> TypeConstruct.Module Then
-            code.AppendLine("    Implements IDisposable")
-        End If
+        Dim isModule As Boolean = typeInfo.TypeConstruct = TypeConstruct.Module
+        Dim isStructure As Boolean = typeInfo.TypeConstruct = TypeConstruct.Structure
+
+        code.AppendLine($"Partial {typeInfo.AccessModifier} {typeKeyword} {typeInfo.TypeName}")
+        If Not isModule Then code.AppendLine("    Implements IDisposable")
         code.AppendLine()
 
-        If typeInfo.TypeConstruct = TypeConstruct.Module Then
+        If isModule Then
             code.AppendLine("    ''' <summary>")
             code.AppendLine($"    ''' Disposes of all fields marked with <c>&lt;DisposeField&gt;</c> in the {typeInfo.TypeName} module.")
             code.AppendLine("    ''' </summary>")
@@ -230,7 +278,8 @@ End Class"
             code.AppendLine("        ' Dispose both managed and unmanaged resources in a module")
             For Each field In typeInfo.Fields
                 If field.IsDisposable Then
-                    code.AppendLine($"        {typeInfo.TypeName}.{field.FieldName}?.Dispose()")
+                    Dim nullSafeOp = If(field.IsNullable, "?", "")
+                    code.AppendLine($"        {typeInfo.TypeName}.{field.FieldName}{nullSafeOp}.Dispose()")
                     code.AppendLine($"        {typeInfo.TypeName}.{field.FieldName} = Nothing")
                 End If
             Next field
@@ -238,15 +287,18 @@ End Class"
             code.AppendLine("    End Sub")
             code.AppendLine()
         Else
-            code.AppendLine("    Private disposedValue As Boolean = False")
+            Dim assignment = If(isStructure, "", " = False")
+            code.AppendLine($"    Private disposedValue As Boolean{assignment}")
             code.AppendLine()
-            code.AppendLine($"    Protected Overridable Sub Dispose(disposing As Boolean)")
+            Dim modifier = If(isStructure, "Private", "Protected Overridable")
+            code.AppendLine($"    {modifier} Sub Dispose(disposing As Boolean)")
             code.AppendLine("        If Not disposedValue Then")
             code.AppendLine("            If disposing Then")
             code.AppendLine("                ' Dispose managed state")
             For Each field In typeInfo.Fields
                 If field.IsDisposable Then
-                    code.AppendLine($"                Me.{field.FieldName}?.Dispose()")
+                    Dim nullSafeOp = If(field.IsNullable, "?", "")
+                    code.AppendLine($"                Me.{field.FieldName}{nullSafeOp}.Dispose()")
                     code.AppendLine($"                Me.{field.FieldName} = Nothing")
                 End If
             Next field
@@ -269,7 +321,7 @@ End Class"
         code.AppendLine("    End Sub")
         code.AppendLine()
 
-        If typeInfo.TypeConstruct <> TypeConstruct.Module Then
+        If Not isModule Then
             ' Public Dispose implementation
             code.AppendLine("    Public Sub Dispose() Implements IDisposable.Dispose")
             code.AppendLine("        ' Do not change this code. Put cleanup code in 'Dispose(disposing As Boolean)' method")
