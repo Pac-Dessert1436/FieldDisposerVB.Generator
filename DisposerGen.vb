@@ -30,9 +30,9 @@ Public NotInheritable Class DisposerGen
 
     Public Sub Initialize(context As IGIC) Implements IIncrementalGenerator.Initialize
         ' Register the attribute source
-        context.RegisterPostInitializationOutput(Sub(ctx)
-                                                     ctx.AddSource("DisposeFieldAttribute.g.vb", GenerateAttributeCode())
-                                                 End Sub)
+        context.RegisterPostInitializationOutput(
+            Sub(ctx) ctx.AddSource("DisposeFieldAttribute.g.vb", GenerateAttributeCode())
+        )
 
         ' Find all partial types that have fields with DisposeField attribute
         Dim typeProvider = context.SyntaxProvider.CreateSyntaxProvider(
@@ -66,14 +66,14 @@ Public NotInheritable Class DisposerGen
         ).Where(Function(t) t IsNot Nothing)
 
         Dim compilation = context.CompilationProvider.Combine(typeProvider.Collect())
-
-        context.RegisterSourceOutput(compilation, Sub(spc, tup)
-                                                      GenerateSource(tup.Left, tup.Right, spc)
-                                                  End Sub)
+        context.RegisterSourceOutput(
+            compilation, Sub(spc, tup) GenerateSource(tup.Left, tup.Right, spc))
     End Sub
 
     Private Function GenerateAttributeCode() As String
-        Return "Imports System
+        Dim code As New System.Text.StringBuilder
+        ' Add the attribute code
+        code.AppendLine("Imports System
 
 <AttributeUsage(AttributeTargets.Field, AllowMultiple:=False)>
 Public NotInheritable Class DisposeFieldAttribute
@@ -81,7 +81,90 @@ Public NotInheritable Class DisposeFieldAttribute
 
     Public Sub New()
     End Sub
-End Class"
+End Class" & vbCrLf)
+        Dim ParamPatterns = Iterator Function()
+                                ' Generate patterns for 0 to 5 parameters
+                                For count = 0 To 5
+                                    If count = 1 Then
+                                        Yield ({"obj"}, {"T"})
+                                        Continue For
+                                    End If
+                                    Dim params As New List(Of String)
+                                    Dim generics As New List(Of String)
+
+                                    For i = 1 To count
+                                        params.Add($"arg{i}")
+                                        generics.Add($"T{i}")
+                                    Next
+
+                                    Yield (params.ToArray(), generics.ToArray())
+                                Next
+                            End Function
+
+        code.AppendLine("#Region ""Bonus: Disposable event classes""")
+
+        ' Generate disposable event classes for different signatures
+        For Each pattern In ParamPatterns()
+            Dim paramGenerics = String.Format("(Of {0})", String.Join(", ", pattern.Item2))
+            Dim paramList = String.Join(", ", pattern.Item1.Zip(pattern.Item2, Function(a, b) $"{a} As {b}"))
+            Dim argumentList = String.Join(", ", pattern.Item1)
+            If pattern.Item1.Count = 0 Then
+                paramList = String.Empty
+                paramGenerics = String.Empty
+                argumentList = String.Empty
+            End If
+            code.AppendLine($"Public NotInheritable Class DisposableEvent{paramGenerics}")
+            code.AppendLine("    Implements IDisposable")
+            code.AppendLine()
+            code.AppendLine($"    Private Event _SourceEvent({paramList})")
+            code.AppendLine($"    Private _removalStack As New Stack(Of Action{paramGenerics})")
+            code.AppendLine("    Private _isDisposed As Boolean")
+            code.AppendLine()
+            code.AppendLine($"    Public Sub Subscribe(eventAction As Action{paramGenerics})")
+            code.AppendLine("        AddHandler _SourceEvent, eventAction")
+            code.AppendLine("        _removalStack.Push(Sub() RemoveHandler _SourceEvent, eventAction)")
+            code.AppendLine("    End Sub")
+            code.AppendLine()
+            code.AppendLine($"    Public Sub Publish({paramList})")
+            code.AppendLine("        If _isDisposed Then Exit Sub")
+            code.AppendLine($"        RaiseEvent _SourceEvent({argumentList})")
+            code.AppendLine("    End Sub")
+            code.AppendLine()
+            code.AppendLine($"    Public ReadOnly Property EventCount As Integer")
+            code.AppendLine("        Get")
+            code.AppendLine($"            Return _removalStack.Count")
+            code.AppendLine("        End Get")
+            code.AppendLine("    End Property")
+            code.AppendLine()
+            code.AppendLine("    Public Sub Dispose() Implements IDisposable.Dispose")
+            code.AppendLine("        Dispose(disposing:=True)")
+            code.AppendLine("        GC.SuppressFinalize(Me)")
+            code.AppendLine("    End Sub")
+            code.AppendLine()
+            code.AppendLine("    Protected Overridable Sub Dispose(disposing As Boolean)")
+            code.AppendLine("        If Not _isDisposed Then")
+            code.AppendLine("            If disposing Then")
+            code.AppendLine("                Do Until _removalStack.Count = 0")
+            code.AppendLine("                    _removalStack.Pop().Invoke()")
+            code.AppendLine("                Loop")
+            code.AppendLine("            End If")
+            code.AppendLine("            _isDisposed = True")
+            code.AppendLine("        End If")
+            code.AppendLine("    End Sub")
+            code.AppendLine()
+            code.AppendLine("    Protected Overrides Sub Finalize()")
+            code.AppendLine("        Try")
+            code.AppendLine("            Dispose(disposing:=False)")
+            code.AppendLine("        Finally")
+            code.AppendLine("            MyBase.Finalize()")
+            code.AppendLine("        End Try")
+            code.AppendLine("    End Sub")
+            code.AppendLine("End Class")
+            code.AppendLine()
+        Next
+
+        code.AppendLine("#End Region")
+        Return code.ToString()
     End Function
 
     Private Sub GenerateSource(compilation As Compilation, typeBlocks As ImmutableArray(Of Syntax.TypeBlockSyntax), source As SourceProductionContext)
@@ -219,8 +302,7 @@ End Class"
     End Function
 
     Private Function GetAccessModifier(typeSymbol As INamedTypeSymbol) As String
-        Const DEFAULT_MODIFIER = "Friend"
-        If typeSymbol Is Nothing Then Return DEFAULT_MODIFIER
+        If typeSymbol Is Nothing Then Return String.Empty
 
         ' Check the declared accessibility
         Select Case typeSymbol.DeclaredAccessibility
@@ -230,14 +312,14 @@ End Class"
                 Return "Protected"
             Case Accessibility.Internal
                 Return "Friend"
-            Case Accessibility.ProtectedOrInternal
-                Return "Protected Friend"
-            Case Accessibility.ProtectedAndInternal
-                Return "Private Protected"
-            Case Accessibility.Public
-                Return "Public"
+            ' Case Accessibility.ProtectedOrInternal
+            '     Return "Protected Friend"
+            ' Case Accessibility.ProtectedAndInternal
+            '     Return "Private Protected"
+            ' Case Accessibility.Public
+            '     Return "Public"
             Case Else
-                Return DEFAULT_MODIFIER
+                Return String.Empty
         End Select
     End Function
 

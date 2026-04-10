@@ -1,6 +1,6 @@
 # FieldDisposerVB.Generator
 
-A VB.NET source generator that automatically generates field disposal methods for classes that implement IDisposable. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
+A VB.NET source generator that automatically generates field disposal methods for classes that implement `IDisposable`. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
 
 Support for `Structure` with fields marked with `<DisposeField>` is broken through 1.0.0 and 1.0.1. *__To utilize the `<DisposeField>` attribute in VB.NET structures, please use version 1.0.2 or later.__*
 
@@ -10,25 +10,115 @@ Support for `Structure` with fields marked with `<DisposeField>` is broken throu
 >
 > However, when it is a **module** that contains at least one field marked with `<DisposeField>`, you **must manually call** the `DisposeModuleFields()` method to dispose all the fields marked with this attribute.
 
-## Version 1.0.2 Update
+## Version History
 
-This release introduces significant improvements to field disposal handling and type accessibility:
+### Version 1.0.3 (Latest)
 
-### New Features
+This release introduces bonus disposable event classes and improves type declaration handling:
+
+#### New Features
+- **Disposable Event Classes**: The generator now includes reusable disposable event classes with proper IDisposable implementation:
+  - `DisposableEvent` (no parameters)
+  - `DisposableEvent(Of T)` (1 generic parameter)
+  - `DisposableEvent(Of T1, T2)` (2 generic parameters)
+  - `DisposableEvent(Of T1, T2, T3)` (3 generic parameters)
+  - And more up to 5 parameters
+- **Enhanced Type Declaration**: Improved handling of class/struct access modifiers with proper validation
+
+#### Fixes
+- **Protected Declaration**: Declarations of classes, structures and modules no longer incorrectly support protected access modifiers, ensuring VB.NET language compliance
+- **Parameter Generation**: Fixed the ParamPatterns function to properly generate parameter combinations
+
+### Version 1.0.2
+
+This release introduced significant improvements to field disposal handling and type accessibility:
+
+#### New Features
 - **Smart Nullability Handling**: The generator now intelligently determines if fields are nullable and generates appropriate disposal code:
   - For nullable fields: Uses safe `?.` operator (`field?.Dispose()`)
-  - For non-nullable fields: Will be disposed directly (`field.Dispose()`)
+  - For non-nullable fields: Uses explicit null checking (`If field IsNot Nothing Then field.Dispose() End If`)
 - **Access Modifier Support**: Generated partial types now correctly match the original type's access modifier (Public, Private, Friend, Protected Friend, etc.)
 - **Enhanced Type Analysis**: Improved detection of field nullability and type accessibility
 
-### Known Limitations
+### Version 1.0.1
+
+This release fixed a minor documentation typo in the generated code comments. In version 1.0.0, the XML documentation incorrectly stated "Override this partial method" when referring to the `DisposeUnmanagedResources()` partial method. This has been corrected to **"Implement this partial method"** to accurately reflect that partial methods are implemented, not overridden.
+
+> **Important:** The functionality of the package **remains identical** to version 1.0.0. Only the generated XML documentation comment has been corrected for accuracy and professionalism.
+
+## Known Limitations
+
 - **Nested Classes/Structures**: The source generator currently does not support nested classes or structures with fields marked with `<DisposeField>` attribute in them. Only top-level types are processed.
+- **Protected Access**: Classes and structures cannot have protected access modifiers in VB.NET, and the generator now properly enforces this language constraint.
 
-## Version 1.0.1 Update
+## Disposable Event Classes Examples
 
-This release fixes a minor documentation typo in the generated code comments. In version 1.0.0, the XML documentation **incorrectly** stated "Override this partial method" when referring to the `DisposeUnmanagedResources()` partial method. This has been corrected to **"Implement this partial method"** to accurately reflect that partial methods are implemented, not overridden.
+The generator includes bonus disposable event classes that automatically handle event handler cleanup. These classes implement `IDisposable` and can be used for managing events that need proper disposal.
 
-> **Important:** The functionality of the package **remains identical** to the previous version (1.0.0). Only the generated XML documentation comment has been corrected for accuracy and professionalism in this version (1.0.1).
+### Basic Usage Example
+
+```vb
+Using simpleEvent As New DisposableEvent
+    ' Subscribe & publish the event
+    simpleEvent.Subscribe(Sub() Console.WriteLine("Event fired!"))
+    simpleEvent.Publish()    
+End Using  ' Event handlers automatically cleaned up
+```
+
+### Generic Event Example
+
+```vb
+Using stringEvent As New DisposableEvent(Of String)
+    ' Subscribe & publish the event with parameter
+    stringEvent.Subscribe(Sub(msg) Console.WriteLine($"Message: {msg}"))
+    stringEvent.Publish("Hello World")
+End Using  ' Event handlers automatically cleaned up
+```
+
+### Multiple Parameter Example
+
+```vb
+Using multiEvent As New DisposableEvent(Of String, Integer)
+    ' Subscribe & publish the event with multiple parameters
+    multiEvent.Subscribe(Sub(name, age) Console.WriteLine($"Name: {name}, Age: {age}"))
+    multiEvent.Publish("John Doe", 30)
+End Using  ' Event handlers automatically cleaned up
+```
+
+### Real-World Usage Pattern with `<DisposeField>`
+
+```vb
+Public Class EventManager
+    <DisposeField> Private _userEvent As New DisposableEvent(Of String)
+    <DisposeField> Private _dataEvent As New DisposableEvent(Of String, Integer)
+    
+    Public Sub RegisterUserHandler(handler As Action(Of String))
+        _userEvent.Subscribe(handler)
+    End Sub
+    
+    Public Sub RegisterDataHandler(handler As Action(Of String, Integer))
+        _dataEvent.Subscribe(handler)
+    End Sub
+    
+    Public Sub NotifyUser(userName As String)
+        _userEvent.Publish(userName)
+    End Sub
+    
+    Public Sub NotifyData(dataName As String, dataValue As Integer)
+        _dataEvent.Publish(dataName, dataValue)
+    End Sub
+    
+    ' No need for manual cleanup; `Dispose` method automatically implemented
+End Class
+```
+
+### Benefits of Using DisposableEvent Classes
+
+1. **Automatic Cleanup**: Event handlers are automatically removed when disposed
+2. **Memory Safety**: Prevents memory leaks from forgotten event handlers
+3. **Thread-Safe**: Uses proper disposal pattern with finalizer
+4. **Multiple Signatures**: Supports events with 0 to 5 parameters
+5. **Generic Support**: Type-safe event parameters
 
 ## Requirements
 

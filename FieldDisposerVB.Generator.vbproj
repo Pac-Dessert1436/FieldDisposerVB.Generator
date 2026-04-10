@@ -9,7 +9,7 @@
 
     <!-- NuGet Package Info -->
     <PackageId>FieldDisposerVB.Generator</PackageId>
-    <Version>1.0.2</Version>
+    <Version>1.0.3</Version>
     <Authors>Pac-Dessert1436</Authors>
     <Company></Company>
     <Description>A VB.NET source generator that automatically generates field disposal methods.</Description>
