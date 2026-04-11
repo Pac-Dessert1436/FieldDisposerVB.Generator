@@ -2,7 +2,7 @@
 
 A VB.NET source generator that automatically generates field disposal methods for classes that implement `IDisposable`. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
 
-Support for `Structure` with fields marked with `<DisposeField>` is broken through 1.0.0 and 1.0.1. *__To utilize the `<DisposeField>` attribute in VB.NET structures, please use version 1.0.2 or later.__*
+Support for `Structure` with fields marked with `<DisposeField>` is broken through 1.0.0 and 1.0.3 (see [Notes on Broken Versions](#notes-on-broken-versions)). *__To utilize the `<DisposeField>` attribute in VB.NET structures, please use version 1.0.4 or later.__*
 
 > **Notes of Usage:**
 >
@@ -10,46 +10,29 @@ Support for `Structure` with fields marked with `<DisposeField>` is broken throu
 >
 > However, when it is a **module** that contains at least one field marked with `<DisposeField>`, you **must manually call** the `DisposeModuleFields()` method to dispose all the fields marked with this attribute.
 
-## Version History
+## Notes on Broken Versions
 
-### Version 1.0.3 (Latest)
+Versions 1.0.2 through 1.0.3 are broken due to the following bugs:
+- Structures incorrectly used `MyBase.Finalize()` which is not allowed in VB.NET
+- In DisposableEvent classes (not inheritable), disposal methods are incorrectly incorrectly declared as `Protected Overridable` instead of `Private`
 
-This release introduces bonus disposable event classes and improves type declaration handling:
+__DO NOT use 1.0.2 and 1.0.3.__ Please use version 1.0.4 or later for full functionality and bug fixes.
 
-#### New Features
-- **Disposable Event Classes**: The generator now includes reusable disposable event classes with proper IDisposable implementation:
-  - `DisposableEvent` (no parameters)
-  - `DisposableEvent(Of T)` (1 generic parameter)
-  - `DisposableEvent(Of T1, T2)` (2 generic parameters)
-  - `DisposableEvent(Of T1, T2, T3)` (3 generic parameters)
-  - And more up to 5 parameters
-- **Enhanced Type Declaration**: Improved handling of class/struct access modifiers with proper validation
+## Working Features in Version 1.0.4
 
-#### Fixes
-- **Protected Declaration**: Declarations of classes, structures and modules no longer incorrectly support protected access modifiers, ensuring VB.NET language compliance
-- **Parameter Generation**: Fixed the ParamPatterns function to properly generate parameter combinations
-
-### Version 1.0.2
-
-This release introduced significant improvements to field disposal handling and type accessibility:
-
-#### New Features
-- **Smart Nullability Handling**: The generator now intelligently determines if fields are nullable and generates appropriate disposal code:
-  - For nullable fields: Uses safe `?.` operator (`field?.Dispose()`)
-  - For non-nullable fields: Uses explicit null checking (`If field IsNot Nothing Then field.Dispose() End If`)
-- **Access Modifier Support**: Generated partial types now correctly match the original type's access modifier (Public, Private, Friend, Protected Friend, etc.)
-- **Enhanced Type Analysis**: Improved detection of field nullability and type accessibility
-
-### Version 1.0.1
-
-This release fixed a minor documentation typo in the generated code comments. In version 1.0.0, the XML documentation incorrectly stated "Override this partial method" when referring to the `DisposeUnmanagedResources()` partial method. This has been corrected to **"Implement this partial method"** to accurately reflect that partial methods are implemented, not overridden.
-
-> **Important:** The functionality of the package **remains identical** to version 1.0.0. Only the generated XML documentation comment has been corrected for accuracy and professionalism.
+- **Critical Fix**: Fixed compilation errors in structures that incorrectly used `MyBase.Finalize()`
+- **Disposable Event Fix**: Corrected disposal method from `Protected Overridable` to `Private` in DisposableEvent classes
+- **Nested Class Support**: Added support for nested classes and structures with fields marked with `<DisposeField>` attribute
+- **Improved File Naming**: Generated source files for nested types now use unique names based on full type hierarchy
+- **Disposable Event Classes**: Added reusable disposable event classes with proper IDisposable implementation (0-5 parameters)
+- **Structure Support**: Properly supports structures with fields marked with `<DisposeField>` attribute
+- **Smart Nullability Handling**: Generates appropriate disposal code for nullable vs. non-nullable fields
+- **Access Modifier Support**: Generated types correctly match original type's access modifier
+- **Documentation Fix**: Corrected XML documentation comment from "Override" to "Implement" for partial methods (from version 1.0.1)
 
 ## Known Limitations
 
-- **Nested Classes/Structures**: The source generator currently does not support nested classes or structures with fields marked with `<DisposeField>` attribute in them. Only top-level types are processed.
-- **Protected Access**: Classes and structures cannot have protected access modifiers in VB.NET, and the generator now properly enforces this language constraint.
+- **Protected Access**: Classes and structures cannot have protected access modifiers in VB.NET, and the generator properly enforces this language constraint.
 
 ## Disposable Event Classes Examples
 

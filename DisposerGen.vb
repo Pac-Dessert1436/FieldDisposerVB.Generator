@@ -19,6 +19,9 @@ Public NotInheritable Class DisposerGen
         Public Property TypeConstruct As TypeConstruct
         Public Property Fields As List(Of FieldInfo)
         Public Property AccessModifier As String
+        Public Property IsNested As Boolean
+        Public Property ContainingType As TypeInfo
+        Public Property NestedTypes As List(Of TypeInfo)
     End Class
 
     Private Class FieldInfo
@@ -45,7 +48,7 @@ Public NotInheritable Class DisposerGen
                 Dim typeDecl = TryCast(ctx.Node, Syntax.TypeStatementSyntax)
                 If typeDecl Is Nothing Then Return Nothing
 
-                ' Get the containing type block
+                ' Get the containing type block (handles both top-level and nested types)
                 Dim typeBlock = TryCast(typeDecl.Parent, Syntax.TypeBlockSyntax)
                 If typeBlock Is Nothing Then Return Nothing
 
@@ -116,12 +119,12 @@ End Class" & vbCrLf)
             code.AppendLine($"Public NotInheritable Class DisposableEvent{paramGenerics}")
             code.AppendLine("    Implements IDisposable")
             code.AppendLine()
-            code.AppendLine($"    Private Event _SourceEvent({paramList})")
-            code.AppendLine($"    Private _removalStack As New Stack(Of Action{paramGenerics})")
+            code.AppendLine($"    Private Event _SourceEvent As Action{paramGenerics}")
+            code.AppendLine($"    Private _removalStack As New Stack(Of Action)")
             code.AppendLine("    Private _isDisposed As Boolean")
             code.AppendLine()
             code.AppendLine($"    Public Sub Subscribe(eventAction As Action{paramGenerics})")
-            code.AppendLine("        AddHandler _SourceEvent, eventAction")
+            code.AppendLine($"        AddHandler _SourceEvent, eventAction")
             code.AppendLine("        _removalStack.Push(Sub() RemoveHandler _SourceEvent, eventAction)")
             code.AppendLine("    End Sub")
             code.AppendLine()
@@ -141,7 +144,7 @@ End Class" & vbCrLf)
             code.AppendLine("        GC.SuppressFinalize(Me)")
             code.AppendLine("    End Sub")
             code.AppendLine()
-            code.AppendLine("    Protected Overridable Sub Dispose(disposing As Boolean)")
+            code.AppendLine("    Private Sub Dispose(disposing As Boolean)")
             code.AppendLine("        If Not _isDisposed Then")
             code.AppendLine("            If disposing Then")
             code.AppendLine("                Do Until _removalStack.Count = 0")
@@ -173,7 +176,19 @@ End Class" & vbCrLf)
                 Dim typeInfo = AnalyzeType(typeBlock, compilation, source.CancellationToken)
                 If typeInfo IsNot Nothing AndAlso typeInfo.Fields.Count > 0 Then
                     Dim sourceCode = GenerateDisposeCode(typeInfo)
-                    source.AddSource($"{typeInfo.TypeName}_Disposers.g.vb", sourceCode)
+                    
+                    ' Generate unique file name for nested types
+                    Dim fileName As String = typeInfo.TypeName
+                    If typeInfo.IsNested Then
+                        ' For nested types, include the full hierarchy in the file name
+                        Dim model = compilation.GetSemanticModel(typeBlock.SyntaxTree)
+                        Dim typeSymbol = model.GetDeclaredSymbol(typeBlock.BlockStatement, source.CancellationToken)
+                        If typeSymbol IsNot Nothing Then
+                            fileName = typeSymbol.ToDisplayString().Replace(".", "_").Replace("+", "_")
+                        End If
+                    End If
+                    
+                    source.AddSource($"{fileName}_Disposers.g.vb", sourceCode)
                 End If
             End If
         Next
@@ -197,6 +212,9 @@ End Class" & vbCrLf)
                 .TypeName = typeBlock.BlockStatement.Identifier.ValueText,
                 .TypeConstruct = GetTypeConstruct(typeBlock),
                 .AccessModifier = GetAccessModifier(typeSymbol),
+                .IsNested = typeSymbol.ContainingType IsNot Nothing,
+                .ContainingType = Nothing, ' This will be populated if we need to track hierarchy
+                .NestedTypes = New List(Of TypeInfo)(),
                 .Fields = New List(Of FieldInfo)()
             }
 
@@ -306,18 +324,12 @@ End Class" & vbCrLf)
 
         ' Check the declared accessibility
         Select Case typeSymbol.DeclaredAccessibility
+            Case Accessibility.Public
+                Return "Public"
             Case Accessibility.Private
                 Return "Private"
-            Case Accessibility.Protected
-                Return "Protected"
             Case Accessibility.Internal
                 Return "Friend"
-            ' Case Accessibility.ProtectedOrInternal
-            '     Return "Protected Friend"
-            ' Case Accessibility.ProtectedAndInternal
-            '     Return "Private Protected"
-            ' Case Accessibility.Public
-            '     Return "Public"
             Case Else
                 Return String.Empty
         End Select
@@ -412,13 +424,17 @@ End Class" & vbCrLf)
             code.AppendLine("    End Sub")
             code.AppendLine()
 
-            ' Finalizer
+            ' Finalizer (cannot use MyBase in structures)
             code.AppendLine($"    Protected Overrides Sub Finalize()")
-            code.AppendLine("        Try")
-            code.AppendLine("            Dispose(disposing:=False)")
-            code.AppendLine("        Finally")
-            code.AppendLine("            MyBase.Finalize()")
-            code.AppendLine("        End Try")
+            If isStructure Then
+                code.AppendLine("        Dispose(disposing:=False)")
+            Else
+                code.AppendLine("        Try")
+                code.AppendLine("            Dispose(disposing:=False)")
+                code.AppendLine("        Finally")
+                code.AppendLine("            MyBase.Finalize()")
+                code.AppendLine("        End Try")  
+            End If
             code.AppendLine("    End Sub")
             code.AppendLine()
         End If
