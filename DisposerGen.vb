@@ -22,6 +22,8 @@ Public NotInheritable Class DisposerGen
         Public Property IsNested As Boolean
         Public Property ContainingType As TypeInfo
         Public Property NestedTypes As List(Of TypeInfo)
+        Public Property HasDisposableBaseClass As Boolean
+        Public Property IsSealedClass As Boolean
     End Class
 
     Private Class FieldInfo
@@ -171,13 +173,17 @@ End Class" & vbCrLf)
     End Function
 
     Private Sub GenerateSource(compilation As Compilation, typeBlocks As ImmutableArray(Of Syntax.TypeBlockSyntax), source As SourceProductionContext)
+        ' Track processed files to avoid duplicates
+        Dim processedFiles As New HashSet(Of String)()
+        
         For Each typeBlock In typeBlocks
             If typeBlock IsNot Nothing Then
                 Dim typeInfo = AnalyzeType(typeBlock, compilation, source.CancellationToken)
                 If typeInfo IsNot Nothing AndAlso typeInfo.Fields.Count > 0 Then
-                    Dim sourceCode = GenerateDisposeCode(typeInfo)
+                    ' Generate source code with complete type hierarchy for nested types
+                    Dim sourceCode = GenerateDisposeCodeWithCompleteHierarchy(typeBlock, compilation, source.CancellationToken)
                     
-                    ' Generate unique file name for nested types
+                    ' Generate unique file name
                     Dim fileName As String = typeInfo.TypeName
                     If typeInfo.IsNested Then
                         ' For nested types, include the full hierarchy in the file name
@@ -187,6 +193,10 @@ End Class" & vbCrLf)
                             fileName = typeSymbol.ToDisplayString().Replace(".", "_").Replace("+", "_")
                         End If
                     End If
+                    
+                    ' Skip if we've already generated this file
+                    If processedFiles.Contains(fileName) Then Continue For
+                    processedFiles.Add(fileName)
                     
                     source.AddSource($"{fileName}_Disposers.g.vb", sourceCode)
                 End If
@@ -215,6 +225,8 @@ End Class" & vbCrLf)
                 .IsNested = typeSymbol.ContainingType IsNot Nothing,
                 .ContainingType = Nothing, ' This will be populated if we need to track hierarchy
                 .NestedTypes = New List(Of TypeInfo)(),
+                .HasDisposableBaseClass = CheckDisposableBaseClass(typeSymbol),
+                .IsSealedClass = typeSymbol IsNot Nothing AndAlso typeSymbol.IsSealed,
                 .Fields = New List(Of FieldInfo)()
             }
 
@@ -319,6 +331,13 @@ End Class" & vbCrLf)
         End Select
     End Function
 
+    Private Function CheckDisposableBaseClass(typeSymbol As INamedTypeSymbol) As Boolean
+        If typeSymbol Is Nothing OrElse typeSymbol.BaseType Is Nothing Then Return False
+
+        ' Check if the base class implements IDisposable
+        Return ImplementsIDisposable(typeSymbol.BaseType)
+    End Function
+
     Private Function GetAccessModifier(typeSymbol As INamedTypeSymbol) As String
         If typeSymbol Is Nothing Then Return String.Empty
 
@@ -344,6 +363,249 @@ End Class" & vbCrLf)
             code.AppendLine()
         End If
 
+        ' For nested classes, we need to generate the complete type hierarchy
+        If typeInfo.IsNested Then
+            ' Generate the complete type hierarchy for nested classes
+            GenerateCompleteTypeHierarchy(code, typeInfo)
+        Else
+            ' For top-level types, just generate the type
+            GenerateTypeHierarchy(code, typeInfo, 0)
+        End If
+
+        If Not String.IsNullOrEmpty(typeInfo.ContainingNamespace) Then
+            code.AppendLine()
+            code.AppendLine("End Namespace")
+        End If
+
+        Return code.ToString()
+    End Function
+
+    Private Function GenerateDisposeCodeWithCompleteHierarchy(typeBlock As Syntax.TypeBlockSyntax, compilation As Compilation, cancellationToken As Threading.CancellationToken) As String
+        Dim code As New System.Text.StringBuilder
+        
+        ' Analyze the target type
+        Dim typeInfo = AnalyzeType(typeBlock, compilation, cancellationToken)
+        If typeInfo Is Nothing Then Return String.Empty
+
+        ' Add namespace if present
+        If Not String.IsNullOrEmpty(typeInfo.ContainingNamespace) Then
+            code.AppendLine($"Namespace {typeInfo.ContainingNamespace}")
+            code.AppendLine()
+        End If
+
+        ' For nested types, we need to generate the complete type hierarchy
+        If typeInfo.IsNested Then
+            ' Build the complete type hierarchy from the syntax tree
+            GenerateCompleteTypeHierarchyFromSyntax(code, typeBlock, compilation, cancellationToken, typeInfo)
+        Else
+            ' For top-level types, just generate the type
+            GenerateTypeHierarchy(code, typeInfo, 0)
+        End If
+
+        If Not String.IsNullOrEmpty(typeInfo.ContainingNamespace) Then
+            code.AppendLine()
+            code.AppendLine("End Namespace")
+        End If
+
+        Return code.ToString()
+    End Function
+
+    Private Sub GenerateCompleteTypeHierarchy(code As System.Text.StringBuilder, typeInfo As TypeInfo)
+        ' For nested classes, we need to generate the complete type hierarchy
+        ' This is a simplified approach - in a real implementation, we'd need to properly
+        ' track the parent type hierarchy from the syntax tree
+        
+        ' For now, we'll generate just the nested type itself
+        ' The parent types should already exist in the source code
+        GenerateTypeHierarchy(code, typeInfo, 0)
+    End Sub
+
+    Private Sub GenerateCompleteTypeHierarchyFromSyntax(code As System.Text.StringBuilder, typeBlock As Syntax.TypeBlockSyntax, compilation As Compilation, cancellationToken As Threading.CancellationToken, targetTypeInfo As TypeInfo)
+        ' Build the complete type hierarchy by traversing up the syntax tree
+        Dim typeHierarchy As New List(Of Syntax.TypeBlockSyntax)()
+        Dim currentBlock As Syntax.TypeBlockSyntax = typeBlock
+        
+        ' Collect all parent type blocks in reverse order (from top to bottom)
+        While currentBlock IsNot Nothing
+            typeHierarchy.Insert(0, currentBlock)
+            ' Find the parent type block (not including current)
+            Dim parentBlock = currentBlock.Parent
+            While parentBlock IsNot Nothing AndAlso Not (TypeOf parentBlock Is Syntax.TypeBlockSyntax)
+                parentBlock = parentBlock.Parent
+            End While
+            
+            If parentBlock Is Nothing Then
+                ' We've reached the top level
+                Exit While
+            End If
+            
+            currentBlock = TryCast(parentBlock, Syntax.TypeBlockSyntax)
+        End While
+        
+        ' Generate the complete type hierarchy with proper nesting
+        GenerateNestedTypeHierarchy(code, typeHierarchy, typeBlock, targetTypeInfo, compilation, cancellationToken, 0)
+    End Sub
+
+    Private Sub GenerateNestedTypeHierarchy(code As System.Text.StringBuilder, typeHierarchy As List(Of Syntax.TypeBlockSyntax), targetBlock As Syntax.TypeBlockSyntax, targetTypeInfo As TypeInfo, compilation As Compilation, cancellationToken As Threading.CancellationToken, currentIndex As Integer)
+        If currentIndex >= typeHierarchy.Count Then Return
+        
+        Dim currentBlock As Syntax.TypeBlockSyntax = typeHierarchy(currentIndex)
+        Dim isTargetType As Boolean = (currentBlock Is targetBlock)
+        Dim isLastType As Boolean = (currentIndex = typeHierarchy.Count - 1)
+        
+        ' Get type information for current block
+        Dim currentTypeInfo As TypeInfo
+        If isTargetType Then
+            currentTypeInfo = targetTypeInfo
+        Else
+            currentTypeInfo = AnalyzeType(currentBlock, compilation, cancellationToken)
+        End If
+        
+        If currentTypeInfo Is Nothing Then Exit Sub
+        ' Generate the type declaration
+        Dim typeKeyword As String
+        Select Case currentBlock.BlockStatement.Kind()
+            Case SyntaxKind.ClassStatement
+                typeKeyword = "Class"
+            Case SyntaxKind.StructureStatement
+                typeKeyword = "Structure"
+            Case SyntaxKind.ModuleStatement
+                typeKeyword = "Module"
+            Case Else
+                typeKeyword = "Class"
+        End Select
+
+        Dim indent As New String(" "c, currentIndex * 4)
+        Dim typeName As String = currentBlock.BlockStatement.Identifier.ValueText
+
+        ' Get access modifier from the original type
+        Dim model = compilation.GetSemanticModel(currentBlock.SyntaxTree)
+        Dim typeSymbol = model.GetDeclaredSymbol(currentBlock.BlockStatement, cancellationToken)
+        Dim accessModifier As String = GetAccessModifier(typeSymbol)
+
+        ' New in 1.0.5: Add a bracket in case it's a keyword like "MyClass" or "Structure"
+        code.AppendLine($"{indent}Partial {accessModifier} {typeKeyword} [{typeName}]")
+        If isTargetType AndAlso Not isLastType Then
+            ' This shouldn't happen - target type should be the last one
+            code.AppendLine($"{indent}End {typeKeyword}")
+        ElseIf isTargetType AndAlso isLastType Then
+            ' Generate the target type with dispose implementation
+            'code.AppendLine()
+            GenerateDisposeImplementation(code, targetTypeInfo, currentIndex + 1)
+            code.AppendLine()
+            code.AppendLine($"{indent}End {typeKeyword}")
+        ElseIf Not isTargetType AndAlso isLastType Then
+            ' This shouldn't happen - non-target type shouldn't be last
+            code.AppendLine($"{indent}End {typeKeyword}")
+        Else
+            ' This is a parent type, so we need to generate nested types recursively
+            GenerateNestedTypeHierarchy(code, typeHierarchy, targetBlock, targetTypeInfo, compilation, cancellationToken, currentIndex + 1)
+            code.AppendLine($"{indent}End {typeKeyword}")
+        End If
+    End Sub
+
+    Private Sub GenerateDisposeImplementation(code As System.Text.StringBuilder, typeInfo As TypeInfo, indentLevel As Integer)
+        Dim indent As New String(" "c, indentLevel * 4)
+        Dim innerIndent As New String(" "c, (indentLevel + 1) * 4)
+
+        Dim isModule As Boolean = typeInfo.TypeConstruct = TypeConstruct.Module
+        Dim isStructure As Boolean = typeInfo.TypeConstruct = TypeConstruct.Structure
+
+        If Not isModule Then
+            code.AppendLine($"{indent}Implements IDisposable")
+            code.AppendLine()
+        End If
+
+        If isModule Then
+            code.AppendLine($"{indent}''' <summary>")
+            code.AppendLine($"{indent}''' Disposes of all fields marked with <c>&lt;DisposeField&gt;</c> in the {typeInfo.TypeName} module.")
+            code.AppendLine($"{indent}''' </summary>")
+            code.AppendLine($"{indent}Public Sub DisposeModuleFields()")
+            code.AppendLine($"{innerIndent}' Dispose both managed and unmanaged resources in a module")
+            For Each field In typeInfo.Fields
+                If field.IsDisposable Then
+                    Dim nullSafeOp = If(field.IsNullable, "?", "")
+                    code.AppendLine($"{innerIndent}{typeInfo.TypeName}.{field.FieldName}{nullSafeOp}.Dispose()")
+                    code.AppendLine($"{innerIndent}{typeInfo.TypeName}.{field.FieldName} = Nothing")
+                End If
+            Next field
+            code.AppendLine($"{innerIndent}DisposeUnmanagedResources()")
+            code.AppendLine($"{indent}End Sub")
+            code.AppendLine()
+        Else
+            Dim assignment = If(isStructure, "", " = False")
+            code.AppendLine($"{indent}Private disposedValue As Boolean{assignment}")
+            code.AppendLine()
+
+            ' Determine the correct Dispose method signature
+            Dim modifier As String
+            Dim hasMyBaseDispose As Boolean = False
+
+            If typeInfo.TypeConstruct = TypeConstruct.Structure Then
+                modifier = "Private"
+            ElseIf typeInfo.HasDisposableBaseClass Then
+                modifier = "Protected Overrides"
+                hasMyBaseDispose = True
+            ElseIf typeInfo.IsSealedClass Then
+                modifier = "Private"
+            Else
+                modifier = "Protected Overridable"
+            End If
+
+            code.AppendLine($"{indent}{modifier} Sub Dispose(disposing As Boolean)")
+            code.AppendLine($"{innerIndent}If Not disposedValue Then")
+            code.AppendLine($"{innerIndent}    If disposing Then")
+            code.AppendLine($"{innerIndent}        ' Dispose managed state")
+            For Each field In typeInfo.Fields
+                If field.IsDisposable Then
+                    Dim nullSafeOp = If(field.IsNullable, "?", "")
+                    code.AppendLine($"{innerIndent}        Me.{field.FieldName}{nullSafeOp}.Dispose()")
+                    code.AppendLine($"{innerIndent}        Me.{field.FieldName} = Nothing")
+                End If
+            Next field
+            code.AppendLine($"{innerIndent}    End If")
+            code.AppendLine()
+            code.AppendLine($"{innerIndent}    ' Dispose unmanaged resources (like setting large fields to Nothing)")
+            code.AppendLine($"{innerIndent}    DisposeUnmanagedResources()")
+            code.AppendLine($"{innerIndent}    disposedValue = True")
+            code.AppendLine($"{innerIndent}End If")
+            If hasMyBaseDispose Then code.AppendLine($"{innerIndent}MyBase.Dispose(disposing)")
+            code.AppendLine($"{indent}End Sub")
+            code.AppendLine()
+        End If
+
+        ' Partial method for unmanaged resources
+        code.AppendLine($"{indent}''' <summary>")
+        code.AppendLine($"{indent}''' Implement this partial method to dispose of unmanaged resources, such as")
+        code.AppendLine($"{indent}''' setting large fields to Nothing.")
+        code.AppendLine($"{indent}''' </summary>")
+        code.AppendLine($"{indent}Partial Private Sub DisposeUnmanagedResources()")
+        code.AppendLine($"{indent}End Sub")
+        code.AppendLine()
+
+        If Not isModule Then
+            ' Public Dispose implementation
+            code.AppendLine($"{indent}Public Sub Dispose() Implements IDisposable.Dispose")
+            code.AppendLine($"{innerIndent}' Do not change this code. Put cleanup code in 'Dispose(disposing As Boolean)' method")
+            code.AppendLine($"{innerIndent}Dispose(disposing:=True)")
+            code.AppendLine($"{innerIndent}GC.SuppressFinalize(Me)")
+            code.AppendLine($"{indent}End Sub")
+            code.AppendLine()
+
+            ' Finalizer (only for classes, not structures)
+            If Not isStructure Then
+                code.AppendLine($"{indent}Protected Overrides Sub Finalize()")
+                code.AppendLine($"{innerIndent}Try")
+                code.AppendLine($"{innerIndent}    Dispose(disposing:=False)")
+                code.AppendLine($"{innerIndent}Finally")
+                code.AppendLine($"{innerIndent}    MyBase.Finalize()")
+                code.AppendLine($"{innerIndent}End Try")
+                code.AppendLine($"{indent}End Sub")
+            End If
+        End If
+    End Sub
+
+    Private Sub GenerateTypeHierarchy(code As System.Text.StringBuilder, typeInfo As TypeInfo, indentLevel As Integer)
         ' Type declaration
         Dim typeKeyword As String
         Select Case typeInfo.TypeConstruct
@@ -359,93 +621,101 @@ End Class" & vbCrLf)
 
         Dim isModule As Boolean = typeInfo.TypeConstruct = TypeConstruct.Module
         Dim isStructure As Boolean = typeInfo.TypeConstruct = TypeConstruct.Structure
+        Dim indent As New String(" "c, indentLevel * 4)
 
-        code.AppendLine($"Partial {typeInfo.AccessModifier} {typeKeyword} {typeInfo.TypeName}")
-        If Not isModule Then code.AppendLine("    Implements IDisposable")
+        ' New in 1.0.5: Add a bracket in case it is a keyword like "MyClass" or "Structure"
+        code.AppendLine($"{indent}Partial {typeInfo.AccessModifier} {typeKeyword} [{typeInfo.TypeName}]")
+        If Not isModule Then code.AppendLine($"{indent}    Implements IDisposable")
         code.AppendLine()
 
         If isModule Then
-            code.AppendLine("    ''' <summary>")
-            code.AppendLine($"    ''' Disposes of all fields marked with <c>&lt;DisposeField&gt;</c> in the {typeInfo.TypeName} module.")
-            code.AppendLine("    ''' </summary>")
-            code.AppendLine($"    Public Sub DisposeModuleFields()")
-            code.AppendLine("        ' Dispose both managed and unmanaged resources in a module")
+            code.AppendLine($"{indent}    ''' <summary>")
+            code.AppendLine($"{indent}    ''' Disposes of all fields marked with <c>&lt;DisposeField&gt;</c> in the {typeInfo.TypeName} module.")
+            code.AppendLine($"{indent}    ''' </summary>")
+            code.AppendLine($"{indent}    Public Sub DisposeModuleFields()")
+            code.AppendLine($"{indent}        ' Dispose both managed and unmanaged resources in a module")
             For Each field In typeInfo.Fields
                 If field.IsDisposable Then
                     Dim nullSafeOp = If(field.IsNullable, "?", "")
-                    code.AppendLine($"        {typeInfo.TypeName}.{field.FieldName}{nullSafeOp}.Dispose()")
-                    code.AppendLine($"        {typeInfo.TypeName}.{field.FieldName} = Nothing")
+                    code.AppendLine($"{indent}        {typeInfo.TypeName}.{field.FieldName}{nullSafeOp}.Dispose()")
+                    code.AppendLine($"{indent}        {typeInfo.TypeName}.{field.FieldName} = Nothing")
                 End If
             Next field
-            code.AppendLine("        DisposeUnmanagedResources()")
-            code.AppendLine("    End Sub")
+            code.AppendLine($"{indent}        DisposeUnmanagedResources()")
+            code.AppendLine($"{indent}    End Sub")
             code.AppendLine()
         Else
             Dim assignment = If(isStructure, "", " = False")
-            code.AppendLine($"    Private disposedValue As Boolean{assignment}")
+            code.AppendLine($"{indent}    Private disposedValue As Boolean{assignment}")
             code.AppendLine()
-            Dim modifier = If(isStructure, "Private", "Protected Overridable")
-            code.AppendLine($"    {modifier} Sub Dispose(disposing As Boolean)")
-            code.AppendLine("        If Not disposedValue Then")
-            code.AppendLine("            If disposing Then")
-            code.AppendLine("                ' Dispose managed state")
+            
+            ' Determine the correct Dispose method signature based on class inheritance and sealed status
+            Dim modifier As String
+            Dim hasMyBaseDispose As Boolean = False
+            
+            If typeInfo.TypeConstruct = TypeConstruct.Structure Then
+                modifier = "Private"
+            ElseIf typeInfo.HasDisposableBaseClass Then
+                modifier = "Protected Overrides"
+                hasMyBaseDispose = True
+            ElseIf typeInfo.IsSealedClass Then
+                modifier = "Private"
+            Else
+                modifier = "Protected Overridable"
+            End If
+            
+            code.AppendLine($"{indent}    {modifier} Sub Dispose(disposing As Boolean)")
+            code.AppendLine($"{indent}        If Not disposedValue Then")
+            code.AppendLine($"{indent}            If disposing Then")
+            code.AppendLine($"{indent}                ' Dispose managed state")
             For Each field In typeInfo.Fields
                 If field.IsDisposable Then
                     Dim nullSafeOp = If(field.IsNullable, "?", "")
-                    code.AppendLine($"                Me.{field.FieldName}{nullSafeOp}.Dispose()")
-                    code.AppendLine($"                Me.{field.FieldName} = Nothing")
+                    code.AppendLine($"{indent}                Me.{field.FieldName}{nullSafeOp}.Dispose()")
+                    code.AppendLine($"{indent}                Me.{field.FieldName} = Nothing")
                 End If
             Next field
-            code.AppendLine("            End If")
+            code.AppendLine($"{indent}            End If")
             code.AppendLine()
-            code.AppendLine("            ' Dispose unmanaged resources (like setting large fields to Nothing)")
-            code.AppendLine("            DisposeUnmanagedResources()")
-            code.AppendLine("            disposedValue = True")
-            code.AppendLine("        End If")
-            code.AppendLine("    End Sub")
+            code.AppendLine($"{indent}            ' Dispose unmanaged resources (like setting large fields to Nothing)")
+            code.AppendLine($"{indent}            DisposeUnmanagedResources()")
+            code.AppendLine($"{indent}            disposedValue = True")
+            code.AppendLine($"{indent}        End If")
+            If hasMyBaseDispose Then code.AppendLine($"{indent}        MyBase.Dispose(disposing)")
+            code.AppendLine($"{indent}    End Sub")
             code.AppendLine()
         End If
 
         ' Partial method for unmanaged resources (will be implemented, not overridden)
-        code.AppendLine("    ''' <summary>")
-        code.AppendLine("    ''' Implement this partial method to dispose of unmanaged resources, such as")
-        code.AppendLine("    ''' setting large fields to Nothing.")
-        code.AppendLine("    ''' </summary>")
-        code.AppendLine("    Partial Private Sub DisposeUnmanagedResources()")
-        code.AppendLine("    End Sub")
+        code.AppendLine($"{indent}    ''' <summary>")
+        code.AppendLine($"{indent}    ''' Implement this partial method to dispose of unmanaged resources, such as")
+        code.AppendLine($"{indent}    ''' setting large fields to Nothing.")
+        code.AppendLine($"{indent}    ''' </summary>")
+        code.AppendLine($"{indent}    Partial Private Sub DisposeUnmanagedResources()")
+        code.AppendLine($"{indent}    End Sub")
         code.AppendLine()
 
         If Not isModule Then
             ' Public Dispose implementation
-            code.AppendLine("    Public Sub Dispose() Implements IDisposable.Dispose")
-            code.AppendLine("        ' Do not change this code. Put cleanup code in 'Dispose(disposing As Boolean)' method")
-            code.AppendLine("        Dispose(disposing:=True)")
-            code.AppendLine("        GC.SuppressFinalize(Me)")
-            code.AppendLine("    End Sub")
+            code.AppendLine($"{indent}    Public Sub Dispose() Implements IDisposable.Dispose")
+            code.AppendLine($"{indent}        ' Do not change this code. Put cleanup code in 'Dispose(disposing As Boolean)' method")
+            code.AppendLine($"{indent}        Dispose(disposing:=True)")
+            code.AppendLine($"{indent}        GC.SuppressFinalize(Me)")
+            code.AppendLine($"{indent}    End Sub")
             code.AppendLine()
 
-            ' Finalizer (cannot use MyBase in structures)
-            code.AppendLine($"    Protected Overrides Sub Finalize()")
-            If isStructure Then
-                code.AppendLine("        Dispose(disposing:=False)")
-            Else
-                code.AppendLine("        Try")
-                code.AppendLine("            Dispose(disposing:=False)")
-                code.AppendLine("        Finally")
-                code.AppendLine("            MyBase.Finalize()")
-                code.AppendLine("        End Try")  
+            ' Finalizer (only for classes, not structures)
+            If Not isStructure Then
+                code.AppendLine($"{indent}    Protected Overrides Sub Finalize()")
+                code.AppendLine($"{indent}        Try")
+                code.AppendLine($"{indent}            Dispose(disposing:=False)")
+                code.AppendLine($"{indent}        Finally")
+                code.AppendLine($"{indent}            MyBase.Finalize()")
+                code.AppendLine($"{indent}        End Try")
+                code.AppendLine($"{indent}    End Sub")
             End If
-            code.AppendLine("    End Sub")
-            code.AppendLine()
         End If
 
-        code.AppendLine($"End {typeKeyword}")
-
-        If Not String.IsNullOrEmpty(typeInfo.ContainingNamespace) Then
-            code.AppendLine()
-            code.AppendLine("End Namespace")
-        End If
-
-        Return code.ToString()
-    End Function
+        code.AppendLine($"{indent}End {typeKeyword}")
+    End Sub
 End Class

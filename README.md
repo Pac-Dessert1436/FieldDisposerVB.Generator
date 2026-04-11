@@ -2,7 +2,7 @@
 
 A VB.NET source generator that automatically generates field disposal methods for classes that implement `IDisposable`. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
 
-Support for `Structure` with fields marked with `<DisposeField>` is broken through 1.0.0 and 1.0.3 (see [Notes on Broken Versions](#notes-on-broken-versions)). *__To utilize the `<DisposeField>` attribute in VB.NET structures, please use version 1.0.4 or later.__*
+Support for `Structure` with fields marked with `<DisposeField>` is broken through 1.0.0 and 1.0.3 (see [Notes on Broken Versions](#notes-on-broken-versions)). *__To utilize the `<DisposeField>` attribute in VB.NET structures, together with feature completeness of this source generator, please use version 1.0.5.__*
 
 > **Notes of Usage:**
 >
@@ -12,27 +12,53 @@ Support for `Structure` with fields marked with `<DisposeField>` is broken throu
 
 ## Notes on Broken Versions
 
-Versions 1.0.2 through 1.0.3 are broken due to the following bugs:
+Versions 1.0.2 through 1.0.3 are **deprecated** due to the following bugs:
 - Structures incorrectly used `MyBase.Finalize()` which is not allowed in VB.NET
-- In DisposableEvent classes (not inheritable), disposal methods are incorrectly incorrectly declared as `Protected Overridable` instead of `Private`
+- In DisposableEvent classes (not inheritable) introduced in version 1.0.3, disposal methods were incorrectly declared as `Protected Overridable` instead of `Private`
 
-__DO NOT use 1.0.2 and 1.0.3.__ Please use version 1.0.4 or later for full functionality and bug fixes.
+Version 1.0.4 has a broken feature related to nested classes (fixed & working in 1.0.5), but other features in 1.0.4 still work perfectly as expected.
 
-## Working Features in Version 1.0.4
+__DO NOT use 1.0.2 and 1.0.3.__ Please use version **1.0.5** for full functionality and bug fixes.
 
-- **Critical Fix**: Fixed compilation errors in structures that incorrectly used `MyBase.Finalize()`
-- **Disposable Event Fix**: Corrected disposal method from `Protected Overridable` to `Private` in DisposableEvent classes
-- **Nested Class Support**: Added support for nested classes and structures with fields marked with `<DisposeField>` attribute
-- **Improved File Naming**: Generated source files for nested types now use unique names based on full type hierarchy
-- **Disposable Event Classes**: Added reusable disposable event classes with proper IDisposable implementation (0-5 parameters)
+## Working Features in Version 1.0.5 (Feature-Complete Release)
+
+**New in 1.0.5:**
+- **Class/Structure Keyword Escaping**: Added brackets around type names to handle VB.NET keywords like "MyClass" or "Structure". This feature is NOT applied to namespaces (refer to [Language Constraints & Design Decisions](#language-constraints--design-decisions) for more details)
+- **Inheritance Support**: Detects if base class implements IDisposable and generates `Protected Overrides Sub Dispose(disposing As Boolean)` with proper `MyBase.Dispose(disposing)` call
+- **Sealed Class Support**: Detects sealed (`NotInheritable`) classes and generates `Private Sub Dispose(disposing As Boolean)` instead of `Protected Overridable`
+- **Smart Dispose Method Signature**: Generates appropriate Dispose method signature based on type characteristics (structure, sealed class, class with disposable base, or regular class)
+
+**From Previous Versions:**
+- **Nested Class Support**: Full support for nested classes and structures with fields marked with `<DisposeField>` attribute (broken in 1.0.4, now working perfectly in 1.0.5)
+- **Improved File Naming**: Generated source files for nested types use unique names based on full type hierarchy
+- **Disposable Event Classes**: Reusable disposable event classes with proper IDisposable implementation (0-5 parameters)
 - **Structure Support**: Properly supports structures with fields marked with `<DisposeField>` attribute
 - **Smart Nullability Handling**: Generates appropriate disposal code for nullable vs. non-nullable fields
 - **Access Modifier Support**: Generated types correctly match original type's access modifier
+- **Module Support**: Special handling for modules with `DisposeModuleFields()` method
+- **Critical Fix**: Fixed compilation errors in structures that incorrectly used `MyBase.Finalize()`
+- **Disposable Event Fix**: Corrected disposal method from `Protected Overridable` to `Private` in DisposableEvent classes
 - **Documentation Fix**: Corrected XML documentation comment from "Override" to "Implement" for partial methods (from version 1.0.1)
 
-## Known Limitations
+> **Version 1.0.5 marks a feature-complete release** with comprehensive support for all VB.NET type constructs, inheritance patterns, and edge cases.
 
-- **Protected Access**: Classes and structures cannot have protected access modifiers in VB.NET, and the generator properly enforces this language constraint.
+## Language Constraints & Design Decisions
+
+The source generator follows VB.NET language rules and recommended coding standards:
+
+- **Protected Access Enforcement**: VB.NET does not allow protected access modifiers on structures, and the generator correctly enforces this language constraint. This aligns with VB.NET's type system design where structures are value types with different accessibility rules than classes.
+
+- **Type-Safe Dispose Pattern**: The generator generates appropriate `Dispose` method signatures based on type characteristics:
+  - **Structures**: Uses `Private Sub Dispose(disposing As Boolean)` (no inheritance, no finalizer)
+  - **Sealed Classes**: Uses `Private Sub Dispose(disposing As Boolean)` (optimization for non-inheritable types)
+  - **Classes with Disposable Base**: Uses `Protected Overrides Sub Dispose(disposing As Boolean)` with proper `MyBase.Dispose(disposing)` call
+  - **Regular Classes**: Uses `Protected Overridable Sub Dispose(disposing As Boolean)` for inheritance support
+
+- **Keyword Escaping for Types**: Type names for classes, structures, and modules that are VB.NET keywords (e.g., "MyClass", "Structure", "Module") are automatically escaped with brackets `[TypeName]` to prevent compilation errors. This ensures compatibility even when using reserved keywords as type names, which can be useful in certain scenarios. 
+
+> **Important**: Keyword escaping is **not applied to namespaces**, as using reserved keywords for namespace names is not a recommended practice.
+
+The above design decisions ensure generated code follows VB.NET best practices and integrates seamlessly with the language's type system.
 
 ## Disposable Event Classes Examples
 
