@@ -14,7 +14,7 @@ Support for `Structure` with fields marked with `<DisposeField>` is broken throu
 
 Versions 1.0.2 through 1.0.3 are broken due to the following bugs:
 - Structures incorrectly used `MyBase.Finalize()` which is not allowed in VB.NET
-- In DisposableEvent classes (not inheritable), disposal methods are incorrectly incorrectly declared as `Protected Overridable` instead of `Private`
+- In DisposableEvent classes (not inheritable), disposal methods are incorrectly declared as `Protected Overridable` instead of `Private`
 
 __DO NOT use 1.0.2 and 1.0.3.__ Please use version 1.0.4 or later for full functionality and bug fixes.
 
