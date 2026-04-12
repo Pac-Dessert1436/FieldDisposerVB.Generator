@@ -1,5 +1,7 @@
 # FieldDisposerVB.Generator
 
+> **Notice**: ✅ This package is feature-complete. Only critical bug fixes and/or necessary feature extensions will be taken into consideration in the future.
+
 A VB.NET source generator that automatically generates field disposal methods for classes that implement `IDisposable`. This tool simplifies resource management by automatically creating proper dispose patterns for fields marked with the `<DisposeField>` attribute.
 
 Support for `Structure` with fields marked with `<DisposeField>` is broken through 1.0.0 and 1.0.3 (see [Notes on Broken Versions](#notes-on-broken-versions)). *__To utilize the `<DisposeField>` attribute in VB.NET structures, together with feature completeness of this source generator, please use version 1.0.5.__*
